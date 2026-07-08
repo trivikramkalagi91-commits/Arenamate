@@ -99,3 +99,16 @@ def test_arena_metadata(client):
     assert body["arena"]["name"] == "SoFi Stadium"
     gate_a = next(z for z in body["zones"] if z["id"] == "gate_a")
     assert set(gate_a["name"]) == {"en", "es", "fr"}
+
+
+def test_assist_alias_endpoint(client, base_payload):
+    res = client.post("/api/assist", json=base_payload)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["language"] == "en"
+
+
+def test_stadium_alias_metadata(client):
+    body = client.get("/api/stadium").json()
+    assert body["arena"]["name"] == "SoFi Stadium"
+

@@ -150,11 +150,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return HealthResponse(status="ok")
 
     @app.get("/api/arena", tags=["data"])
+    @app.get("/api/stadium", tags=["data"])
     async def arena_metadata(request: Request) -> dict:
         return _arena_metadata(request.app.state.arena)
 
     @app.post(
         "/api/guide",
+        response_model=GuideResponse,
+        dependencies=[Depends(_check_rate_limit)],
+        tags=["guide"],
+    )
+    @app.post(
+        "/api/assist",
         response_model=GuideResponse,
         dependencies=[Depends(_check_rate_limit)],
         tags=["guide"],
