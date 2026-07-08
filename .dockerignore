@@ -1,0 +1,27 @@
+# Ignore version control
+.git
+.gitignore
+
+# Ignore local configs and environments
+.env
+.venv
+venv
+ENV
+env
+
+# Ignore build artifacts and caches
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Ignore tests
+tests/
+pytest.ini
+
+# Ignore documentation/etc
+README.md
+LICENSE
+Dockerfile
