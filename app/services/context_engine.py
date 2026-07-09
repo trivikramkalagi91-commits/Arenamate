@@ -168,6 +168,70 @@ def _build_path_steps(
     return steps
 
 
+def _determine_accessibility(
+    needs: list[AccessibilityNeed]
+) -> tuple[bool, bool, AccessibilityMode, bool]:
+    """Determine accessibility constraints and mode from user needs.
+
+    Args:
+        needs (list[AccessibilityNeed]): List of accessibility needs.
+
+    Returns:
+        tuple[bool, bool, AccessibilityMode, bool]: (accessible_only, step_free, mode, visual)
+    """
+    needs_set = set(needs)
+    wheelchair = AccessibilityNeed.wheelchair in needs_set
+    visual = AccessibilityNeed.visual in needs_set
+    hearing = AccessibilityNeed.hearing in needs_set
+
+    accessible_only = wheelchair or visual
+    step_free = wheelchair or visual
+
+    if visual:
+        mode = AccessibilityMode.screen_reader
+    elif hearing:
+        mode = AccessibilityMode.captioned
+    else:
+        mode = AccessibilityMode.standard
+
+    return accessible_only, step_free, mode, visual
+
+
+def _resolve_amenity_and_path(
+    ctx: UserContext, arena: Arena, *, step_free: bool, accessible_only: bool
+) -> tuple[Amenity, list[Link], str | None]:
+    """Resolve the target amenity and navigation path under constraints.
+
+    Args:
+        ctx (UserContext): User input context.
+        arena (Arena): The Arena database.
+        step_free (bool): If True, path links must be step-free.
+        accessible_only (bool): If True, amenities must be accessible.
+
+    Returns:
+        tuple[Amenity, list[Link], str | None]: (amenity, path, alternatives_note)
+    """
+    if ctx.destination_intent == DestinationIntent.seat:
+        amenity = _resolve_seat(ctx, arena)
+        path = compute_shortest_path(arena, ctx.current_location, amenity.sector, step_free_only=step_free)
+        if path is None:
+            raise PathNotFoundException("no accessible route to seat")
+        alt_note = None
+    else:
+        types = _INTENT_TO_TYPES[ctx.destination_intent]
+        candidates = _candidates_with_routes(
+            ctx, arena, types, accessible_only=accessible_only, step_free=step_free
+        )
+        if not candidates:
+            raise PathNotFoundException(f"no reachable facility for intent {ctx.destination_intent.value}")
+        amenity, path, _ = candidates[0]
+        amenity, path, alt_note = _maybe_swap_for_crowd(
+            ctx, arena, amenity, path, candidates
+        )
+
+    return amenity, path, alt_note
+
+
 def build_decision(ctx: UserContext, arena: Arena) -> AnalysisOutcome:
     """Process wayfinding rules and return a structured AnalysisOutcome.
 
@@ -181,39 +245,11 @@ def build_decision(ctx: UserContext, arena: Arena) -> AnalysisOutcome:
     Raises:
         PathNotFoundException: If no route exists to target.
     """
-    needs = set(ctx.accessibility_needs)
-    wheelchair = AccessibilityNeed.wheelchair in needs
-    visual = AccessibilityNeed.visual in needs
-    hearing = AccessibilityNeed.hearing in needs
+    accessible_only, step_free, mode, visual = _determine_accessibility(ctx.accessibility_needs)
 
-    accessible_only = wheelchair or visual
-    step_free = wheelchair or visual
-
-    if visual:
-        mode = AccessibilityMode.screen_reader
-    elif hearing:
-        mode = AccessibilityMode.captioned
-    else:
-        mode = AccessibilityMode.standard
-
-    # Resolve target and path
-    if ctx.destination_intent == DestinationIntent.seat:
-        amenity = _resolve_seat(ctx, arena)
-        path = compute_shortest_path(arena, ctx.current_location, amenity.sector, step_free_only=step_free)
-        if path is None:
-            raise PathNotFoundException("no accessible route to seat")
-        alt_note: str | None = None
-    else:
-        types = _INTENT_TO_TYPES[ctx.destination_intent]
-        candidates = _candidates_with_routes(
-            ctx, arena, types, accessible_only=accessible_only, step_free=step_free
-        )
-        if not candidates:
-            raise PathNotFoundException(f"no reachable facility for intent {ctx.destination_intent.value}")
-        amenity, path, _ = candidates[0]
-        amenity, path, alt_note = _maybe_swap_for_crowd(
-            ctx, arena, amenity, path, candidates
-        )
+    amenity, path, alt_note = _resolve_amenity_and_path(
+        ctx, arena, step_free=step_free, accessible_only=accessible_only
+    )
 
     occupancy = OccupancyLevel(get_simulated_occupancy(arena, amenity.sector, ctx.minutes_to_kickoff))
     hurry = ctx.minutes_to_kickoff < _IMMINENT_KICKOFF_MINUTES and ctx.destination_intent in _HURRY_INTENTS
@@ -234,6 +270,7 @@ def build_decision(ctx: UserContext, arena: Arena) -> AnalysisOutcome:
         alternatives_note=alt_note,
         urgency=urgency,
     )
+
 
 
 def _maybe_swap_for_crowd(

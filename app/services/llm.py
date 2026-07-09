@@ -9,6 +9,8 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Any
 
+import google.api_core.exceptions as google_exceptions
+
 from app.config import Settings
 from app.logging_conf import get_logger
 from app.services.phrasing import PhrasingContext, compile_response
@@ -141,8 +143,11 @@ class GeminiPhraser(BasePhraser):
             )
             text = (getattr(response, "text", "") or "").strip()
             return text or compile_response(ctx)
-        except Exception:  # noqa: BLE001
-            logger.warning("Gemini phrasing generation failed. Falling back to template.")
+        except google_exceptions.GoogleAPICallError as err:  # pragma: no cover
+            logger.warning("Gemini phrasing generation failed due to API error: %s. Falling back to template.", err)
+            return compile_response(ctx)
+        except Exception as err:  # noqa: BLE001
+            logger.warning("Gemini phrasing generation failed due to unexpected error: %s. Falling back to template.", err)
             return compile_response(ctx)
 
 
@@ -162,6 +167,9 @@ def get_phraser_client(settings: Settings) -> BasePhraser:
         phraser = GeminiPhraser(settings)
         logger.info("Gemini phraser initialized successfully (model=%s).", settings.gemini_model)
         return phraser
-    except Exception:  # noqa: BLE001
-        logger.warning("Failed to initialize Gemini Client. Falling back to OfflinePhraser.")
+    except google_exceptions.GoogleAPICallError as err:  # pragma: no cover
+        logger.warning("Failed to initialize Gemini Client due to API error: %s. Falling back to OfflinePhraser.", err)
+        return OfflinePhraser()
+    except Exception as err:  # noqa: BLE001
+        logger.warning("Failed to initialize Gemini Client due to unexpected error: %s. Falling back to OfflinePhraser.", err)
         return OfflinePhraser()
